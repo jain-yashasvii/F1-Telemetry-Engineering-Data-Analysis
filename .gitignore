@@ -1,0 +1,16 @@
+# FastF1 cache
+f1_cache/
+
+# Generated results
+results/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+.venv/
+
+# Secrets
+.streamlit/secrets.toml
+.env
