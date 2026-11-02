@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import logging
+
 import numpy as np
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 
 from telemetry_processor import get_telemetry_matrix, train_slip_inference_engine
+from anomaly_experiment import run_experiment
 
 
 logging.basicConfig(level=logging.INFO)
@@ -39,6 +41,9 @@ with st.sidebar:
     temp_shift = st.slider("Track surface temperature shift (°C)", -15, 15, 0)
     drizzle = st.checkbox("Light drizzle / elevated humidity", value=False)
     st.caption("Temperature scenario scales the grip proxy by 0.5% per °C (bounded ±7.5%).")
+    st.header("Research experiment")
+    anomaly_enabled = st.checkbox("Run feature-set anomaly comparison", value=True)
+    contamination = st.slider("Expected anomaly fraction (contamination)", 0.01, 0.20, 0.02, 0.01, help="Expected training anomaly fraction; controls the Isolation Forest threshold.")
     execute = st.button("Execute Telemetry Simulation", type="primary", use_container_width=True)
 
 if execute:
@@ -93,6 +98,20 @@ if execute:
                 fig.update_yaxes(scaleanchor="x", scaleratio=1)
                 fig.update_layout(template="plotly_dark", paper_bgcolor="#0b1018", plot_bgcolor="#0b1018")
                 st.plotly_chart(fig, use_container_width=True)
+            if anomaly_enabled:
+                st.subheader("Unsupervised anomaly detection")
+                st.caption("Flags identify unusual telemetry patterns only; they are not confirmed mistakes. The final 20% of the lap is scored after fitting on the earlier 80%.")
+                try:
+                    anomaly_rows, anomaly_summary = run_experiment(result, contamination=float(contamination))
+                    st.dataframe(anomaly_summary, use_container_width=True, hide_index=True)
+                    score_fig = px.scatter(anomaly_rows, x="Distance" if anomaly_rows["Distance"].notna().any() else "Time_s", y="isolation_score", color="isolation_flag", facet_row="feature_set", hover_data=["Speed", "RPM", "statistical_score"], title="Isolation Forest anomaly score on chronological holdout")
+                    score_fig.update_layout(template="plotly_dark", paper_bgcolor="#0b1018", plot_bgcolor="#0b1018")
+                    st.plotly_chart(score_fig, use_container_width=True)
+                    comparison_fig = px.bar(anomaly_summary, x="feature_set", y=["isolationforest_rate_pct", "robust_z_rate_pct"], barmode="group", title="Flagged holdout samples by feature set and method", labels={"value": "Flagged samples (%)", "variable": "Method"})
+                    comparison_fig.update_layout(template="plotly_dark", paper_bgcolor="#0b1018", plot_bgcolor="#0b1018")
+                    st.plotly_chart(comparison_fig, use_container_width=True)
+                except Exception as anomaly_exc:
+                    st.warning(f"Anomaly experiment unavailable for this session: {anomaly_exc}")
             with st.expander("Telemetry and inference details"):
                 st.dataframe(result, use_container_width=True, hide_index=True)
         except Exception as exc:
@@ -100,4 +119,5 @@ if execute:
             st.error(f"Simulation failed: {exc}")
 else:
     st.info("Choose a session and driver, adjust the simulated conditions, then execute the telemetry simulation.")
+
 
